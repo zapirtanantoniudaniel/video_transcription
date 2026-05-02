@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Transcriber · Gemini</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #f5f7fc; margin: 0; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 1.5rem; }
+    .app-container { max-width: 800px; width: 100%; background: white; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); padding: 2rem; }
+    h1 { margin-top: 0; color: #1e293b; font-size: 1.8rem; }
+    .section { background: #f8fafc; border-radius: 16px; padding: 1.2rem; margin-bottom: 1.5rem; border: 1px solid #e2e8f0; }
+    .input-group { display: flex; gap: 10px; margin-top: 8px; }
+    input[type="password"], input[type="text"], input[type="url"] { flex: 1; padding: 0.7rem 1rem; border-radius: 50px; border: 1.5px solid #cbd5e1; outline: none; font-size: 0.95rem; }
+    input:focus { border-color: #6366f1; }
+    .btn { padding: 0.7rem 1.4rem; border-radius: 50px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
+    .btn-primary { background: #1e293b; color: white; width: 100%; margin-top: 10px; font-size: 1.1rem; }
+    .btn-primary:hover:not(:disabled) { background: #0f172a; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-outline { background: white; border: 1.5px solid #cbd5e1; }
+    .btn-outline:hover { background: #f1f5f9; }
+    .mode-toggle { display: flex; align-items: center; justify-content: space-between; background: #eff6ff; padding: 12px 18px; border-radius: 12px; border: 1px solid #dbeafe; margin-bottom: 1.5rem; }
+    .toggle-label { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 500; color: #1e40af; }
+    .preview-panel { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.2rem; min-height: 150px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 0.95rem; line-height: 1.6; }
+    .status { font-size: 0.85rem; color: #64748b; margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+    .error { color: #b91c1c; background: #fee2e2; padding: 8px 15px; border-radius: 8px; margin-top: 10px; font-size: 0.9rem; }
+    .thumb-wrap { margin-top: 10px; display: none; }
+    .thumb-wrap img { border-radius: 10px; max-width: 100%; height: auto; border: 1px solid #e2e8f0; }
+    .thumb-meta { margin-top: 6px; font-size: 0.82rem; color: #64748b; word-break: break-all; }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+  <h1>▶️ YouTube Transcriber · Gemini</h1>
+
+  <!-- API Key -->
+  <div class="section">
+    <label style="font-weight: 500; font-size: 0.9rem;">Gemini API Key</label>
+    <div class="input-group">
+      <input type="password" id="apiKeyInput" placeholder="Paste your API key here">
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-outline" id="getKeyBtn">Get Key</button>
+        <button class="btn btn-outline" id="setKeyBtn">Set Key</button>
+      </div>
+    </div>
+    <div id="keyStatus" class="status">⚪ No key loaded</div>
+  </div>
+
+  <!-- YouTube URL -->
+  <div class="section">
+    <label style="font-weight: 500; font-size: 0.9rem;">YouTube URL</label>
+    <div class="input-group" style="margin-top:8px;">
+      <input type="url" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
+      <button class="btn btn-outline" id="previewBtn">Preview</button>
+    </div>
+    <div class="thumb-wrap" id="thumbWrap">
+      <img id="thumbImg" src="" alt="Video thumbnail">
+      <div class="thumb-meta" id="thumbMeta"></div>
+    </div>
+  </div>
+
+  <!-- Model toggle -->
+  <div class="mode-toggle">
+    <div>
+      <div style="font-weight: 600; font-size: 0.95rem; color: #1e3a8a;">Transcription Engine</div>
+      <div style="font-size: 0.75rem; color: #64748b;" id="quotaHint">Current: High-Volume</div>
+    </div>
+    <label class="toggle-label">
+      <input type="checkbox" id="accuracyToggle" style="width: 18px; height: 18px;">
+      🎯 High Accuracy
+    </label>
+  </div>
+
+  <button class="btn btn-primary" id="transcribeBtn" disabled>🎤 Start Transcription</button>
+
+  <div id="statusArea" class="status"></div>
+  <div id="errorArea"></div>
+
+  <div style="margin-top: 1.5rem;">
+    <div style="font-weight: 600; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+      <span>Result</span>
+      <button class="btn btn-outline" id="downloadBtn" disabled style="padding: 2px 10px; font-size: 0.7rem;">⬇️ Download .txt</button>
+    </div>
+    <div id="previewPanel" class="preview-panel">
+      <span style="color: #94a3b8; font-style: italic;">Your transcript will appear here…</span>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  const STORAGE_KEY = 'gemini_apikey';
+  let apiKey = null;
+  let validatedUrl = null;
+
+  const el = {
+    apiKeyInput:    document.getElementById('apiKeyInput'),
+    setKeyBtn:      document.getElementById('setKeyBtn'),
+    getKeyBtn:      document.getElementById('getKeyBtn'),
+    keyStatus:      document.getElementById('keyStatus'),
+    ytUrl:          document.getElementById('ytUrl'),
+    previewBtn:     document.getElementById('previewBtn'),
+    thumbWrap:      document.getElementById('thumbWrap'),
+    thumbImg:       document.getElementById('thumbImg'),
+    thumbMeta:      document.getElementById('thumbMeta'),
+    accuracyToggle: document.getElementById('accuracyToggle'),
+    quotaHint:      document.getElementById('quotaHint'),
+    transcribeBtn:  document.getElementById('transcribeBtn'),
+    statusArea:     document.getElementById('statusArea'),
+    errorArea:      document.getElementById('errorArea'),
+    previewPanel:   document.getElementById('previewPanel'),
+    downloadBtn:    document.getElementById('downloadBtn'),
+  };
+
+  // ── API key management ────────────────────────────────────────────────────
+  el.getKeyBtn.onclick = () => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      apiKey = stored;
+      el.apiKeyInput.value = '';
+      el.keyStatus.innerHTML = `✅ Key loaded (starts with ${apiKey.substring(0, 4)}…)`;
+      checkReady();
+    } else {
+      el.keyStatus.innerHTML = '⚠️ No saved key found';
+    }
+  };
+
+  el.setKeyBtn.onclick = () => {
+    const val = el.apiKeyInput.value.trim();
+    if (!val) return;
+    apiKey = val;
+    localStorage.setItem(STORAGE_KEY, apiKey);
+    el.apiKeyInput.value = '';
+    el.keyStatus.innerHTML = `✅ Key saved (starts with ${apiKey.substring(0, 4)}…)`;
+    checkReady();
+  };
+
+  // ── Model toggle ──────────────────────────────────────────────────────────
+  el.accuracyToggle.onchange = () => {
+    el.quotaHint.innerText = el.accuracyToggle.checked
+      ? 'Current: High-Accuracy (gemini-2.5-flash)'
+      : 'Current: High-Volume (gemini-3.1-flash-lite-preview)';
+  };
+
+  // ── YouTube URL helpers ───────────────────────────────────────────────────
+  function extractVideoId(url) {
+    try {
+      const u = new URL(url);
+      // Standard: youtube.com/watch?v=ID
+      if (u.hostname.includes('youtube.com') && u.searchParams.get('v')) {
+        return u.searchParams.get('v');
+      }
+      // Short: youtu.be/ID
+      if (u.hostname === 'youtu.be') {
+        return u.pathname.slice(1).split('?')[0];
+      }
+      // Embed: youtube.com/embed/ID
+      const embedMatch = u.pathname.match(/\/embed\/([^/?]+)/);
+      if (embedMatch) return embedMatch[1];
+    } catch (_) { /* invalid URL */ }
+    return null;
+  }
+
+  function canonicalUrl(videoId) {
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
+  // ── Preview button ────────────────────────────────────────────────────────
+  el.previewBtn.onclick = () => {
+    el.errorArea.innerHTML = '';
+    const raw = el.ytUrl.value.trim();
+    const videoId = extractVideoId(raw);
+    if (!videoId) {
+      el.errorArea.innerHTML = '<div class="error">⚠️ Could not parse a YouTube video ID from that URL.</div>';
+      validatedUrl = null;
+      checkReady();
+      return;
+    }
+    validatedUrl = canonicalUrl(videoId);
+    el.thumbImg.src = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+    el.thumbMeta.innerText = validatedUrl;
+    el.thumbWrap.style.display = 'block';
+    checkReady();
+  };
+
+  // Also validate on Enter key in the URL field
+  el.ytUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.previewBtn.click(); });
+
+  // ── Enable transcribe button ──────────────────────────────────────────────
+  function checkReady() {
+    el.transcribeBtn.disabled = !(apiKey && validatedUrl);
+  }
+
+  // ── Main transcription ────────────────────────────────────────────────────
+  async function runTranscription() {
+    const model = el.accuracyToggle.checked ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
+    const url   = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    el.transcribeBtn.disabled = true;
+    el.downloadBtn.disabled   = true;
+    el.errorArea.innerHTML    = '';
+    el.statusArea.innerHTML   = '⏳ Sending to Gemini…';
+    el.previewPanel.innerText = 'Processing… this may take a minute for long videos.';
+
+    const payload = {
+      contents: [{
+        parts: [
+          {
+            text: [
+              'Transcribe this YouTube video verbatim.',
+              'Output only the spoken words, in the original language.',
+              'Do not summarise, explain, or add commentary.',
+              'Preserve natural paragraph breaks where the topic shifts.',
+              'If the video has no speech, respond with "(no speech detected)".'
+            ].join(' ')
+          },
+          {
+            fileData: {
+              mimeType: 'video/*',
+              fileUri:  validatedUrl
+            }
+          }
+        ]
+      }],
+      generationConfig: { temperature: 0.1, topP: 0.95, maxOutputTokens: 65536 }
+    };
+
+    const MAX_RETRIES  = 6;
+    const BASE_DELAY   = 5000;
+    let data, response;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        response = await fetch(url, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload)
+        });
+        data = await response.json();
+      } catch (networkErr) {
+        if (attempt === MAX_RETRIES) throw networkErr;
+        await sleep(BASE_DELAY * Math.pow(2, attempt));
+        continue;
+      }
+
+      if (response.ok) break;
+
+      if ((response.status === 429 || response.status === 503 || response.status === 500) && attempt < MAX_RETRIES) {
+        const retryAfter = response.headers.get('Retry-After');
+        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : BASE_DELAY * Math.pow(2, attempt);
+        el.statusArea.innerHTML = `⏳ API busy — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${MAX_RETRIES})…`;
+        await sleep(waitMs);
+        continue;
+      }
+
+      throw new Error(data?.error?.message || `HTTP ${response.status}`);
+    }
+
+    const transcript = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!transcript) {
+      const blockReason = data?.promptFeedback?.blockReason;
+      throw new Error(blockReason
+        ? `Request blocked by Gemini: ${blockReason}`
+        : 'Gemini returned an empty transcript.');
+    }
+
+    el.previewPanel.innerText = transcript;
+    el.statusArea.innerHTML   = '✅ Done!';
+    el.downloadBtn.disabled   = false;
+    el.transcribeBtn.disabled = false;
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  el.transcribeBtn.onclick = async () => {
+    try {
+      await runTranscription();
+    } catch (err) {
+      el.errorArea.innerHTML  = `<div class="error">⚠️ ${err.message}</div>`;
+      el.statusArea.innerHTML = '❌ Failed';
+      el.previewPanel.innerText = 'Error occurred during transcription.';
+      el.transcribeBtn.disabled = false;
+    }
+  };
+
+  el.downloadBtn.onclick = () => {
+    const blob = new Blob([el.previewPanel.innerText], { type: 'text/plain' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `transcript_${Date.now()}.txt`;
+    a.click();
+  };
+</script>
+
+</body>
+</html>
