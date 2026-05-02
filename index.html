@@ -193,7 +193,7 @@
 
   // ── Main transcription ────────────────────────────────────────────────────
   async function runTranscription() {
-    const model = el.accuracyToggle.checked ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
+    const model = el.accuracyToggle.checked ? 'gemini-2.5-flash' : 'gemini-3.1-flash-lite-preview';
     const url   = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     el.transcribeBtn.disabled = true;
